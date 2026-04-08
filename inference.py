@@ -22,13 +22,13 @@ from openai import OpenAI
 # ── Configuration ─────────────────────────────────────────────────────────────
 API_BASE_URL = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME   = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-HF_TOKEN     = os.environ.get("HF_TOKEN", "")
+HF_TOKEN    = os.environ.get("HF_TOKEN")
 SPACE_URL    = os.environ.get("SPACE_URL", "http://localhost:7860")
 BENCHMARK    = "support_env"
 MAX_STEPS    = 10
 
 client = OpenAI(
-    api_key=HF_TOKEN if HF_TOKEN else "dummy-key",
+        api_key=HF_TOKEN,
     base_url=API_BASE_URL,
 )
 
