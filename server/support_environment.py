@@ -2,7 +2,6 @@
 Customer Support Inbox Automation Environment.
 Implements the OpenEnv Environment interface.
 """
-
 import uuid
 import random
 from typing import Optional
@@ -16,21 +15,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from models import SupportAction, SupportObservation, SupportState
 from tasks import TASKS, get_task_emails, get_task_description
-from graders import grade_easy, grade_medium, grade_hard
+from graders import grade_easy, grade_medium, grade_hard, sanitize_reward
 
 
 class SupportEnvironment(Environment):
     """
     Customer Support Inbox Automation RL Environment.
-
     An AI agent processes incoming customer support emails and must:
-      - Easy:   Classify the email into the correct category
-      - Medium: Classify + generate a professional response
-      - Hard:   Multi-step: classify → respond → escalate or resolve
-
-    Reward range: [0.0, 1.0] with meaningful partial signals at each step.
+    - Easy:   Classify the email into the correct category
+    - Medium: Classify + generate a professional response
+    - Hard:   Multi-step: classify -> respond -> escalate or resolve
+    Reward range: strictly inside (0.0, 1.0) - never equal to endpoints.
     """
-
     SUPPORTS_CONCURRENT_SESSIONS = False
 
     def __init__(self):
@@ -39,7 +35,7 @@ class SupportEnvironment(Environment):
         self._current_task: str = "easy"
         self._email_index: int = 0
         self._emails: list = []
-        self._hard_step: int = 1  # For hard task: tracks which sub-step we're on
+        self._hard_step: int = 1
         self._cumulative_reward: float = 0.0
         self._current_email: Optional[dict] = None
         self._classification_done: bool = False
@@ -69,7 +65,6 @@ class SupportEnvironment(Environment):
         self._response_done = False
 
         description = get_task_description(task_id)
-
         return SupportObservation(
             email_id=self._current_email["id"],
             email_subject=self._current_email["subject"],
@@ -84,7 +79,7 @@ class SupportEnvironment(Environment):
                 f"Email {self._email_index + 1} of {len(self._emails)}."
             ),
             task_complete=False,
-            reward=0.0,
+            reward=0.005,  # safe non-zero initial reward strictly inside (0, 1)
             task_id=task_id,
         )
 
@@ -94,25 +89,20 @@ class SupportEnvironment(Environment):
     def step(self, action: SupportAction) -> SupportObservation:
         self._step_count += 1
         action_dict = action.model_dump()
-
         reward = 0.0
         feedback = ""
         task_complete = False
-
         email = self._current_email
 
         # ---- Route to correct grader ----
         if self._current_task == "easy":
             reward, feedback = grade_easy(action_dict, email)
-            task_complete = True  # Each easy email is a single-step task
-
+            task_complete = True
         elif self._current_task == "medium":
             reward, feedback = grade_medium(action_dict, email)
             task_complete = True
-
         elif self._current_task == "hard":
             reward, feedback = grade_hard(action_dict, email, step=self._hard_step)
-
             if self._hard_step == 1 and action_dict.get("action_type") == "classify":
                 self._hard_step = 2
                 self._classification_done = True
@@ -122,11 +112,12 @@ class SupportEnvironment(Environment):
             elif self._hard_step == 3 and action_dict.get("action_type") in ("escalate", "resolve"):
                 task_complete = True
 
+        # Sanitize reward to ensure it is strictly inside (0.0, 1.0)
+        reward = sanitize_reward(reward)
         self._cumulative_reward += reward
 
         # ---- Advance to next email if task is complete ----
         category = action_dict.get("category") or email.get("current_category")
-
         if task_complete:
             self._email_index += 1
             if self._email_index < len(self._emails):
